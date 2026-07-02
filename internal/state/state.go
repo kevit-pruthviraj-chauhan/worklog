@@ -8,43 +8,128 @@ import (
 )
 
 type State struct {
-	Date string   `json:"date"`
-	Step int      `json:"step"`
-	Logs []string `json:"logs"`
+	Date       string   `json:"date"`
+	Step       int      `json:"step"`
+	EntryTime  string   `json:"entry_time,omitempty"`
+	LunchStart string   `json:"lunch_start,omitempty"`
+	LunchEnd   string   `json:"lunch_end,omitempty"`
+	ExitTime   string   `json:"exit_time,omitempty"`
+	Logs       []string `json:"logs"`
 }
 
-const layout = "2006-01-02"
+const (
+	layout          = "2006-01-02"
+	timestampLayout = time.RFC3339
+)
 
 func Today() string {
 	return time.Now().Format(layout)
 }
 
-func path() string {
-	home, _ := os.UserHomeDir()
-	dir := filepath.Join(home, ".worklog")
-	os.MkdirAll(dir, 0755)
-	return filepath.Join(dir, "state.json")
+func defaultState() State {
+	return State{Date: Today(), Step: 0}
 }
 
-func Load() State {
-	b, err := os.ReadFile(path())
+func path() (string, error) {
+	home, err := os.UserHomeDir()
 	if err != nil {
-		return State{Date: Today(), Step: 0}
+		home = os.Getenv("HOME")
+		if home == "" {
+			return "", err
+		}
+	}
+
+	dir := filepath.Join(home, ".worklog")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", err
+	}
+
+	return filepath.Join(dir, "state.json"), nil
+}
+
+func Load() (State, error) {
+	p, err := path()
+	if err != nil {
+		return defaultState(), err
+	}
+
+	b, err := os.ReadFile(p)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return defaultState(), nil
+		}
+		return defaultState(), err
 	}
 
 	var s State
-	json.Unmarshal(b, &s)
-
-	// auto reset daily
-	if s.Date != Today() {
-		return State{Date: Today(), Step: 0}
+	if err := json.Unmarshal(b, &s); err != nil {
+		return defaultState(), err
 	}
 
-	return s
+	if s.Date != Today() {
+		return defaultState(), nil
+	}
+
+	return s, nil
 }
 
-func Save(s State) {
+func Reset() error {
+	return Save(defaultState())
+}
+
+func parseStamp(value string) (time.Time, bool) {
+	if value == "" {
+		return time.Time{}, false
+	}
+
+	t, err := time.Parse(timestampLayout, value)
+	return t, err == nil
+}
+
+func (s State) WorkedDuration() time.Duration {
+	entry, ok := parseStamp(s.EntryTime)
+	if !ok {
+		return 0
+	}
+
+	now := time.Now()
+	duration := time.Duration(0)
+
+	if start, ok := parseStamp(s.LunchStart); ok {
+		duration += start.Sub(entry)
+
+		if end, ok := parseStamp(s.LunchEnd); ok {
+			if exit, ok := parseStamp(s.ExitTime); ok {
+				duration += exit.Sub(end)
+			} else {
+				duration += now.Sub(end)
+			}
+		}
+	} else if exit, ok := parseStamp(s.ExitTime); ok {
+		duration += exit.Sub(entry)
+	} else {
+		duration += now.Sub(entry)
+	}
+
+	if duration < 0 {
+		return 0
+	}
+
+	return duration
+}
+
+func Save(s State) error {
 	s.Date = Today()
-	b, _ := json.MarshalIndent(s, "", "  ")
-	os.WriteFile(path(), b, 0644)
+
+	p, err := path()
+	if err != nil {
+		return err
+	}
+
+	b, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(p, b, 0644)
 }
