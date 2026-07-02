@@ -17,6 +17,7 @@ const (
 func Progress(s state.State) {
 	worked := s.WorkedDuration()
 	remaining := workdayTarget - worked
+	checkoutTime := time.Now().Add(remaining)
 	if remaining < 0 {
 		remaining = 0
 	}
@@ -30,6 +31,7 @@ func Progress(s state.State) {
 	printField("Worked", fmt.Sprintf("%s / %s", formatDuration(worked), formatDuration(workdayTarget)))
 	if worked < workdayTarget {
 		printField("Remaining", formatDuration(remaining))
+		printField("Checkout at", checkoutTime.Format("15:04"))
 	} else {
 		printField("Overtime", formatDuration(worked-workdayTarget))
 	}
