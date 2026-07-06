@@ -6,12 +6,23 @@ import (
 	"time"
 
 	"worklog/internal/state"
+
+	"github.com/pterm/pterm"
+	"github.com/pterm/pterm/putils"
 )
 
 const (
-	workdayTarget   = 8*time.Hour + 30*time.Minute
-	dashboardWidth  = 56
-	progressBarSize = 36
+	workdayTarget = 8*time.Hour + 30*time.Minute
+
+	// ANSI Color codes
+	Reset   = "\033[0m"
+	Bold    = "\033[1m"
+	Cyan    = "\033[36m"
+	Green   = "\033[32m"
+	Yellow  = "\033[33m"
+	Magenta = "\033[35m"
+	Blue    = "\033[34m"
+	Red     = "\033[31m"
 )
 
 func Progress(s state.State) {
@@ -22,63 +33,95 @@ func Progress(s state.State) {
 		remaining = 0
 	}
 
-	printLine()
-	printCentered("WORKLOG DASHBOARD")
-	printLine()
-	printField("Date", s.Date)
-	printField("Status", label(s.Step))
-	printField("Next", nextAction(s.Step))
-	printField("Worked", fmt.Sprintf("%s / %s", formatDuration(worked), formatDuration(workdayTarget)))
-	if worked < workdayTarget {
-		printField("Remaining", formatDuration(remaining))
-		printField("Checkout at", checkoutTime.Format("15:04"))
+	fmt.Println()
+	printBanner()
+	fmt.Println()
+
+	// Date and Status
+	fmt.Printf("%s▸ DATE:%s      %s\n", Cyan, Reset, s.Date)
+	statusSymbol := getStatusSymbol(s.Step)
+	statusColor := getStatusColor(s.Step)
+	fmt.Printf("%s▸ STATUS:%s    %s%s%s %s%s\n", Cyan, Reset, statusColor, statusSymbol, Reset, Bold, label(s.Step))
+	fmt.Println()
+
+	// Check in and out times
+	checkInTime := formatTime(s.EntryTime)
+	checkOutTime := formatTime(s.ExitTime)
+	fmt.Printf("%s┌─ TIMES ─────────────────────────────┐%s\n", Green, Reset)
+	fmt.Printf("%s│%s CHECK IN:  %s%s%s\n", Green, Reset, Green, checkInTime, Reset)
+	if checkOutTime == "-" {
+		fmt.Printf("%s│%s CHECK OUT: %s%s (est)%s\n", Green, Reset, Yellow, checkoutTime.Format("3:04 PM"), Reset)
 	} else {
-		printField("Overtime", formatDuration(worked-workdayTarget))
+		fmt.Printf("%s│%s CHECK OUT: %s%s%s\n", Green, Reset, Green, checkOutTime, Reset)
 	}
-	printField("Progress", fmt.Sprintf("%s %d%%", progressBar(worked, workdayTarget), int(percent(worked, workdayTarget))))
-	printLine()
+	fmt.Printf("%s└─────────────────────────────────────┘%s\n", Green, Reset)
+	fmt.Println()
 
-	fmt.Println("TIMELINE")
-	printTimelineEntry("Entry", s.EntryTime)
-	printTimelineEntry("Lunch start", s.LunchStart)
-	printTimelineEntry("Lunch end", s.LunchEnd)
-	printTimelineEntry("Exit", s.ExitTime)
-	printLine()
+	// Lunch times
+	lunchStart := formatTime(s.LunchStart)
+	lunchEnd := formatTime(s.LunchEnd)
+	fmt.Printf("%s┌─ LUNCH ─────────────────────────────┐%s\n", Blue, Reset)
+	fmt.Printf("%s│%s START: %s%s   END: %s%s%s\n", Blue, Reset, Blue, lunchStart, Blue, lunchEnd, Reset)
+	fmt.Printf("%s└─────────────────────────────────────┘%s\n", Blue, Reset)
+	fmt.Println()
+
+	// Work hours with visual indicator
+	percentWorked := int(percent(worked, workdayTarget))
+	fmt.Printf("%s┌─ HOURS ─────────────────────────────┐%s\n", Yellow, Reset)
+	fmt.Printf("%s│%s Worked:   %s%s%s / %s\n", Yellow, Reset, Yellow, formatDuration(worked), Reset, formatDuration(workdayTarget))
+	fmt.Printf("%s│%s Remaining: %s%s%s\n", Yellow, Reset, Yellow, formatDuration(remaining), Reset)
+	fmt.Printf("%s│%s Progress:  %s%d%%%s\n", Yellow, Reset, Yellow, percentWorked, Reset)
+	fmt.Printf("%s└─────────────────────────────────────┘%s\n", Yellow, Reset)
+	fmt.Println()
+
+	// Next action (highlighted)
+	fmt.Printf("%s╔════════════════════════════════════════╗%s\n", Magenta, Reset)
+	fmt.Printf("%s║%s [!] WORKLOG [!]%s%s%s\n", Magenta, Bold, Reset, strings.Repeat(" ", 20), Magenta)
+	fmt.Printf("%s║%s [!] %-28s [!] %s%s\n", Magenta, Bold, fmt.Sprintf("%s - Finish by: %s", nextAction(s.Step), checkoutTime.Format("3:04 PM")), Reset, Magenta)
+	fmt.Printf("%s╚════════════════════════════════════════╝%s\n", Magenta, Reset)
+	fmt.Println()
 }
 
-func printLine() {
-	fmt.Println(strings.Repeat("=", dashboardWidth))
+func printBanner() {
+	pterm.DefaultBigText.WithLetters(
+		putils.LettersFromStringWithStyle("WORKLOG", pterm.NewStyle(pterm.FgRed, pterm.Bold)),
+	).Render()
+	fmt.Printf("%s[!] Penetrate your schedule%s\n", Red, Reset)
+	fmt.Printf("%s[!] Status: Engaged%s\n", Red, Reset)
 }
 
-func printCentered(value string) {
-	innerWidth := dashboardWidth - 2
-	padding := innerWidth - len(value)
-	if padding < 0 {
-		padding = 0
+func getStatusSymbol(step int) string {
+	switch step {
+	case 0:
+		return "⭕"
+	case 1:
+		return "🟢"
+	case 2:
+		return "🟡"
+	case 3:
+		return "🟢"
+	case 4:
+		return "✓"
+	default:
+		return "?"
 	}
-	left := padding / 2
-	right := padding - left
-	fmt.Printf("=%s%s%s=\n", strings.Repeat(" ", left), value, strings.Repeat(" ", right))
 }
 
-func printField(label, value string) {
-	fmt.Printf("%-14s %s\n", label+":", value)
-}
-
-func printTimelineEntry(label, value string) {
-	fmt.Printf("  %-12s %s\n", label+":", formatTime(value))
-}
-
-func progressBar(worked, target time.Duration) string {
-	ratio := percent(worked, target) / 100.0
-	filled := int(ratio * float64(progressBarSize))
-	if filled < 0 {
-		filled = 0
+func getStatusColor(step int) string {
+	switch step {
+	case 0:
+		return Red
+	case 1:
+		return Green
+	case 2:
+		return Yellow
+	case 3:
+		return Green
+	case 4:
+		return Cyan
+	default:
+		return Reset
 	}
-	if filled > progressBarSize {
-		filled = progressBarSize
-	}
-	return fmt.Sprintf("[%s%s]", strings.Repeat("█", filled), strings.Repeat("░", progressBarSize-filled))
 }
 
 func percent(worked, target time.Duration) float64 {
@@ -103,7 +146,7 @@ func formatTime(value string) string {
 	if err != nil {
 		return "-"
 	}
-	return t.Format("03:04 PM")
+	return t.Format("3:04 PM")
 }
 
 func formatDuration(d time.Duration) string {

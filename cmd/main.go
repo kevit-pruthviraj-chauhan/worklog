@@ -73,10 +73,6 @@ func main() {
 
 	case "stat", "status":
 		ui.Progress(s)
-		fmt.Println("\n--- LOG ---")
-		for _, l := range s.Logs {
-			fmt.Println(l)
-		}
 
 	case "reset":
 		if err := state.Reset(); err != nil {
