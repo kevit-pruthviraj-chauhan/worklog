@@ -72,7 +72,11 @@ func main() {
 		}
 
 	case "stat", "status":
-		ui.Progress(s)
+		if s.Step == 1 || s.Step == 2 || s.Step == 3 {
+			ui.LiveProgress(s)
+		} else {
+			ui.Progress(s)
+		}
 
 	case "reset":
 		if err := state.Reset(); err != nil {

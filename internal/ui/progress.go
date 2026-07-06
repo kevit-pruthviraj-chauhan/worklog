@@ -2,6 +2,8 @@ package ui
 
 import (
 	"fmt"
+	"os"
+	"os/signal"
 	"strings"
 	"time"
 
@@ -26,6 +28,32 @@ const (
 )
 
 func Progress(s state.State) {
+	renderProgress(s, false)
+}
+
+func LiveProgress(s state.State) {
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt)
+	defer signal.Stop(stop)
+
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		clearScreen()
+		renderProgress(s, true)
+
+		select {
+		case <-ticker.C:
+			continue
+		case <-stop:
+			fmt.Println()
+			return
+		}
+	}
+}
+
+func renderProgress(s state.State, live bool) {
 	worked := s.WorkedDuration()
 	remaining := workdayTarget - worked
 	checkoutTime := time.Now().Add(remaining)
@@ -80,6 +108,15 @@ func Progress(s state.State) {
 	fmt.Printf("%s║%s [!] %-28s [!] %s%s\n", Magenta, Bold, fmt.Sprintf("%s - Finish by: %s", nextAction(s.Step), checkoutTime.Format("3:04 PM")), Reset, Magenta)
 	fmt.Printf("%s╚════════════════════════════════════════╝%s\n", Magenta, Reset)
 	fmt.Println()
+
+	if live {
+		fmt.Printf("%s[Live] Press Ctrl+C to stop live status refresh.%s\n", Cyan, Reset)
+		fmt.Println()
+	}
+}
+
+func clearScreen() {
+	fmt.Print("\033[H\033[2J")
 }
 
 func printBanner() {
