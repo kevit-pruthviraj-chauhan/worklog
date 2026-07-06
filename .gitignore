@@ -25,3 +25,7 @@ ehthumbs.db
 go.sum
 vendor/
 *.mod.bak
+
+
+UPDATE_GUIDE.md
+RELEASE_SETUP.md

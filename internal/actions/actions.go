@@ -162,16 +162,23 @@ func Update() error {
 		return fmt.Errorf("failed to make binary executable: %w", err)
 	}
 
-	// Replace the old binary with the new one
-	// We need to do this carefully to handle the case where the binary is in use
+	// Try to replace the old binary with the new one
+	// If permissions denied, provide helpful instructions
 	oldExePath := exePath + ".old"
 	if err := os.Rename(exePath, oldExePath); err != nil {
+		// Check if it's a permission denied error
+		if os.IsPermission(err) {
+			return fmt.Errorf("permission denied updating %s\n\nTo update, run:\n  sudo worklog update\n\nOr manually:\n  sudo mv %s %s", exePath, tmpFile.Name(), exePath)
+		}
 		return fmt.Errorf("failed to backup old binary: %w", err)
 	}
 
 	if err := os.Rename(tmpFile.Name(), exePath); err != nil {
 		// Restore the old binary if the new one fails to move
 		os.Rename(oldExePath, exePath)
+		if os.IsPermission(err) {
+			return fmt.Errorf("permission denied updating %s\n\nTo update, run:\n  sudo worklog update\n\nOr manually:\n  sudo mv %s %s", exePath, tmpFile.Name(), exePath)
+		}
 		return fmt.Errorf("failed to install new binary: %w", err)
 	}
 
@@ -180,6 +187,5 @@ func Update() error {
 
 	fmt.Printf("Successfully updated to %s\n", release.TagName)
 	fmt.Printf("Binary location: %s\n", exePath)
-	fmt.Println("To move to /usr/local/bin/, run: sudo mv " + exePath + " /usr/local/bin/")
 	return nil
 }
