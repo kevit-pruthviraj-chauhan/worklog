@@ -103,7 +103,7 @@ func formatTime(value string) string {
 	if err != nil {
 		return "-"
 	}
-	return t.Format("15:04")
+	return t.Format("03:04 PM")
 }
 
 func formatDuration(d time.Duration) string {

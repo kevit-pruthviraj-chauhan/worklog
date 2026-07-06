@@ -1,8 +1,13 @@
 package actions
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"runtime"
 	"time"
 
 	"worklog/internal/state"
@@ -71,4 +76,110 @@ func Chkout(s *state.State, ts time.Time) error {
 	default:
 		return errors.New("cannot check out right now")
 	}
+}
+
+// GitHubRelease represents a GitHub release
+type GitHubRelease struct {
+	TagName string `json:"tag_name"`
+	Assets  []struct {
+		Name string `json:"name"`
+		URL  string `json:"browser_download_url"`
+	} `json:"assets"`
+}
+
+// Update downloads and installs the latest version of worklog
+func Update() error {
+	// Get the current executable path
+	exePath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to get executable path: %w", err)
+	}
+
+	// Fetch latest release from GitHub
+	resp, err := http.Get("https://api.github.com/repos/kevit-pruthviraj-chauhan/worklog/releases/latest")
+	if err != nil {
+		return fmt.Errorf("failed to fetch latest release: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("GitHub API error: %d", resp.StatusCode)
+	}
+
+	var release GitHubRelease
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return fmt.Errorf("failed to parse release info: %w", err)
+	}
+
+	if release.TagName == "" {
+		return errors.New("no releases found")
+	}
+
+	// Find the appropriate binary for this OS/arch
+	osName := runtime.GOOS
+	arch := runtime.GOARCH
+	binaryName := fmt.Sprintf("worklog-%s-%s", osName, arch)
+
+	var downloadURL string
+	for _, asset := range release.Assets {
+		if asset.Name == binaryName {
+			downloadURL = asset.URL
+			break
+		}
+	}
+
+	if downloadURL == "" {
+		return fmt.Errorf("no binary found for %s/%s in release %s", osName, arch, release.TagName)
+	}
+
+	// Download the binary
+	fmt.Printf("Downloading worklog %s...\n", release.TagName)
+	resp, err = http.Get(downloadURL)
+	if err != nil {
+		return fmt.Errorf("failed to download binary: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download failed: %d", resp.StatusCode)
+	}
+
+	// Create temporary file
+	tmpFile, err := os.CreateTemp("", "worklog-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("failed to write binary: %w", err)
+	}
+	tmpFile.Close()
+
+	// Make it executable
+	if err := os.Chmod(tmpFile.Name(), 0755); err != nil {
+		return fmt.Errorf("failed to make binary executable: %w", err)
+	}
+
+	// Replace the old binary with the new one
+	// We need to do this carefully to handle the case where the binary is in use
+	oldExePath := exePath + ".old"
+	if err := os.Rename(exePath, oldExePath); err != nil {
+		return fmt.Errorf("failed to backup old binary: %w", err)
+	}
+
+	if err := os.Rename(tmpFile.Name(), exePath); err != nil {
+		// Restore the old binary if the new one fails to move
+		os.Rename(oldExePath, exePath)
+		return fmt.Errorf("failed to install new binary: %w", err)
+	}
+
+	// Clean up the old binary
+	os.Remove(oldExePath)
+
+	fmt.Printf("Successfully updated to %s\n", release.TagName)
+	fmt.Printf("Binary location: %s\n", exePath)
+	fmt.Println("To move to /usr/local/bin/, run: sudo mv " + exePath + " /usr/local/bin/")
+	return nil
 }

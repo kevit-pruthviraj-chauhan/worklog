@@ -12,7 +12,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("usage: worklog chkin [HH:MM] | chkout [HH:MM] | stat | reset")
+		fmt.Println("usage: worklog chkin [HH:MM] | chkout [HH:MM] | stat | reset | update")
 		return
 	}
 
@@ -84,6 +84,12 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Println("state reset")
+
+	case "update":
+		if err := actions.Update(); err != nil {
+			fmt.Fprintln(os.Stderr, "update failed:", err)
+			os.Exit(1)
+		}
 
 	default:
 		fmt.Println("unknown command")
