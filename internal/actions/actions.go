@@ -30,15 +30,13 @@ func ParseOptionalTime(arg string, ref time.Time) (time.Time, error) {
 
 	parsed, err := time.Parse("15:04", arg)
 	if err != nil {
-		return time.Time{}, err
+		return time.Time{}, errors.New("use HH:MM format")
 	}
 	now := nowLocal()
 	result := time.Date(now.Year(), now.Month(), now.Day(), parsed.Hour(), parsed.Minute(), 0, 0, now.Location())
+
 	if !ref.IsZero() && result.Before(ref) {
-		candidate := result.Add(12 * time.Hour)
-		if !candidate.Before(ref) && candidate.Sub(ref) < 24*time.Hour {
-			return candidate, nil
-		}
+		return time.Time{}, errors.New("input time cannot be before the previous action")
 	}
 
 	return result, nil
@@ -52,6 +50,10 @@ func Chkin(s *state.State, ts time.Time) error {
 		s.Step = 1
 		return nil
 	case 2:
+		lunchStart, _ := time.Parse(time.RFC3339, s.LunchStart)
+		if ts.Before(lunchStart) {
+			return errors.New("cannot check in: time must be after lunch start")
+		}
 		AddLog(s, "CHECKIN: Lunch End", ts)
 		s.LunchEnd = ts.Format(time.RFC3339)
 		s.Step = 3
@@ -64,11 +66,19 @@ func Chkin(s *state.State, ts time.Time) error {
 func Chkout(s *state.State, ts time.Time) error {
 	switch s.Step {
 	case 1:
+		entryTime, _ := time.Parse(time.RFC3339, s.EntryTime)
+		if ts.Before(entryTime) {
+			return errors.New("cannot check out: time must be after entry time")
+		}
 		AddLog(s, "CHKOUT: Lunch Start", ts)
 		s.LunchStart = ts.Format(time.RFC3339)
 		s.Step = 2
 		return nil
 	case 3:
+		lunchEnd, _ := time.Parse(time.RFC3339, s.LunchEnd)
+		if ts.Before(lunchEnd) {
+			return errors.New("cannot check out: time must be after lunch end")
+		}
 		AddLog(s, "CHKOUT: Exit", ts)
 		s.ExitTime = ts.Format(time.RFC3339)
 		s.Step = 4
@@ -78,7 +88,6 @@ func Chkout(s *state.State, ts time.Time) error {
 	}
 }
 
-// GitHubRelease represents a GitHub release
 type GitHubRelease struct {
 	TagName string `json:"tag_name"`
 	Assets  []struct {
@@ -87,15 +96,12 @@ type GitHubRelease struct {
 	} `json:"assets"`
 }
 
-// Update downloads and installs the latest version of worklog
 func Update() error {
-	// Get the current executable path
 	exePath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("failed to get executable path: %w", err)
 	}
 
-	// Fetch latest release from GitHub
 	resp, err := http.Get("https://api.github.com/repos/kevit-pruthviraj-chauhan/worklog/releases/latest")
 	if err != nil {
 		return fmt.Errorf("failed to fetch latest release: %w", err)
@@ -115,7 +121,6 @@ func Update() error {
 		return errors.New("no releases found")
 	}
 
-	// Find the appropriate binary for this OS/arch
 	osName := runtime.GOOS
 	arch := runtime.GOARCH
 	binaryName := fmt.Sprintf("worklog-%s-%s", osName, arch)
@@ -132,7 +137,6 @@ func Update() error {
 		return fmt.Errorf("no binary found for %s/%s in release %s", osName, arch, release.TagName)
 	}
 
-	// Download the binary
 	fmt.Printf("Downloading worklog %s...\n", release.TagName)
 	resp, err = http.Get(downloadURL)
 	if err != nil {
@@ -144,7 +148,6 @@ func Update() error {
 		return fmt.Errorf("download failed: %d", resp.StatusCode)
 	}
 
-	// Create temporary file
 	tmpFile, err := os.CreateTemp("", "worklog-*")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
@@ -157,16 +160,12 @@ func Update() error {
 	}
 	tmpFile.Close()
 
-	// Make it executable
 	if err := os.Chmod(tmpFile.Name(), 0755); err != nil {
 		return fmt.Errorf("failed to make binary executable: %w", err)
 	}
 
-	// Try to replace the old binary with the new one
-	// If permissions denied, provide helpful instructions
 	oldExePath := exePath + ".old"
 	if err := os.Rename(exePath, oldExePath); err != nil {
-		// Check if it's a permission denied error
 		if os.IsPermission(err) {
 			return fmt.Errorf("permission denied updating %s\n\nTo update, run:\n  sudo worklog update\n\nOr manually:\n  sudo mv %s %s", exePath, tmpFile.Name(), exePath)
 		}
@@ -174,7 +173,6 @@ func Update() error {
 	}
 
 	if err := os.Rename(tmpFile.Name(), exePath); err != nil {
-		// Restore the old binary if the new one fails to move
 		os.Rename(oldExePath, exePath)
 		if os.IsPermission(err) {
 			return fmt.Errorf("permission denied updating %s\n\nTo update, run:\n  sudo worklog update\n\nOr manually:\n  sudo mv %s %s", exePath, tmpFile.Name(), exePath)
@@ -182,7 +180,6 @@ func Update() error {
 		return fmt.Errorf("failed to install new binary: %w", err)
 	}
 
-	// Clean up the old binary
 	os.Remove(oldExePath)
 
 	fmt.Printf("Successfully updated to %s\n", release.TagName)

@@ -28,95 +28,117 @@ const (
 )
 
 func Progress(s state.State) {
-	renderProgress(s, false)
+	fmt.Println()
+	printBanner()
+	fmt.Println()
+
+	worked := s.WorkedDuration()
+	remaining := workdayTarget - worked
+	if remaining < 0 {
+		remaining = 0
+	}
+	checkoutTime := time.Now().Add(remaining)
+	percentWorked := int(percent(worked, workdayTarget))
+
+	fmt.Print(buildProgressString(s, checkoutTime, worked, remaining, percentWorked))
+	fmt.Println()
 }
 
 func LiveProgress(s state.State) {
+	clearScreen()
+	printBanner()
+	fmt.Println()
+
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt)
 	defer signal.Stop(stop)
+
+	area, _ := pterm.DefaultArea.Start()
+	defer area.Stop()
 
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
 	for {
-		clearScreen()
-		renderProgress(s, true)
+		worked := s.WorkedDuration()
+		remaining := workdayTarget - worked
+		if remaining < 0 {
+			remaining = 0
+		}
+		checkoutTime := time.Now().Add(remaining)
+		percentWorked := int(percent(worked, workdayTarget))
+
+		content := buildProgressString(s, checkoutTime, worked, remaining, percentWorked)
+		content += fmt.Sprintf("\n%s[Live] Press Ctrl+C to stop live status refresh.%s\n", Cyan, Reset)
+
+		area.Update(content)
 
 		select {
 		case <-ticker.C:
-			continue
+			// Continue loop
 		case <-stop:
-			fmt.Println()
 			return
 		}
 	}
 }
 
-func renderProgress(s state.State, live bool) {
-	worked := s.WorkedDuration()
-	remaining := workdayTarget - worked
-	checkoutTime := time.Now().Add(remaining)
-	if remaining < 0 {
-		remaining = 0
-	}
-
-	fmt.Println()
-	printBanner()
-	fmt.Println()
+func buildProgressString(s state.State, checkoutTime time.Time, worked, remaining time.Duration, percentWorked int) string {
+	var sb strings.Builder
 
 	// Date and Status
-	fmt.Printf("%s▸ DATE:%s      %s\n", Cyan, Reset, s.Date)
+	sb.WriteString(fmt.Sprintf("%s▸ DATE:%s      %s\n", Cyan, Reset, s.Date))
 	statusSymbol := getStatusSymbol(s.Step)
 	statusColor := getStatusColor(s.Step)
-	fmt.Printf("%s▸ STATUS:%s    %s%s%s %s%s\n", Cyan, Reset, statusColor, statusSymbol, Reset, Bold, label(s.Step))
-	fmt.Println()
+	sb.WriteString(fmt.Sprintf("%s▸ STATUS:%s    %s%s%s %s%s\n\n", Cyan, Reset, statusColor, statusSymbol, Reset, Bold, label(s.Step)))
 
 	// Check in and out times
 	checkInTime := formatTime(s.EntryTime)
 	checkOutTime := formatTime(s.ExitTime)
-	fmt.Printf("%s┌─ TIMES ─────────────────────────────┐%s\n", Green, Reset)
-	fmt.Printf("%s│%s CHECK IN:  %s%s%s\n", Green, Reset, Green, checkInTime, Reset)
+	sb.WriteString(fmt.Sprintf("%s┌─ TIMES ─────────────────────────────┐%s\n", Green, Reset))
+	sb.WriteString(fmt.Sprintf("%s│%s CHECK IN:  %s%s%s\n", Green, Reset, Green, checkInTime, Reset))
 	if checkOutTime == "-" {
-		fmt.Printf("%s│%s CHECK OUT: %s%s (est)%s\n", Green, Reset, Yellow, checkoutTime.Format("3:04 PM"), Reset)
+		sb.WriteString(fmt.Sprintf("%s│%s CHECK OUT: %s%s (est)%s\n", Green, Reset, Yellow, checkoutTime.Format("3:04 PM"), Reset))
 	} else {
-		fmt.Printf("%s│%s CHECK OUT: %s%s%s\n", Green, Reset, Green, checkOutTime, Reset)
+		sb.WriteString(fmt.Sprintf("%s│%s CHECK OUT: %s%s%s\n", Green, Reset, Green, checkOutTime, Reset))
 	}
-	fmt.Printf("%s└─────────────────────────────────────┘%s\n", Green, Reset)
-	fmt.Println()
+	sb.WriteString(fmt.Sprintf("%s└─────────────────────────────────────┘%s\n\n", Green, Reset))
 
 	// Lunch times
 	lunchStart := formatTime(s.LunchStart)
 	lunchEnd := formatTime(s.LunchEnd)
-	fmt.Printf("%s┌─ LUNCH ─────────────────────────────┐%s\n", Blue, Reset)
-	fmt.Printf("%s│%s START: %s%s   END: %s%s%s\n", Blue, Reset, Blue, lunchStart, Blue, lunchEnd, Reset)
-	fmt.Printf("%s└─────────────────────────────────────┘%s\n", Blue, Reset)
-	fmt.Println()
+	sb.WriteString(fmt.Sprintf("%s┌─ LUNCH ─────────────────────────────┐%s\n", Blue, Reset))
+	sb.WriteString(fmt.Sprintf("%s│%s START: %s%s   END: %s%s%s\n", Blue, Reset, Blue, lunchStart, Blue, lunchEnd, Reset))
+	sb.WriteString(fmt.Sprintf("%s└─────────────────────────────────────┘%s\n\n", Blue, Reset))
 
 	// Work hours with visual indicator
-	percentWorked := int(percent(worked, workdayTarget))
-	fmt.Printf("%s┌─ HOURS ─────────────────────────────┐%s\n", Yellow, Reset)
-	fmt.Printf("%s│%s Worked:   %s%s%s / %s\n", Yellow, Reset, Yellow, formatDuration(worked), Reset, formatDuration(workdayTarget))
-	fmt.Printf("%s│%s Remaining: %s%s%s\n", Yellow, Reset, Yellow, formatDuration(remaining), Reset)
-	fmt.Printf("%s│%s Progress:  %s%d%%%s\n", Yellow, Reset, Yellow, percentWorked, Reset)
-	fmt.Printf("%s└─────────────────────────────────────┘%s\n", Yellow, Reset)
-	fmt.Println()
+	progressBar := renderProgressBar(percentWorked)
+	sb.WriteString(fmt.Sprintf("%s┌─ HOURS ─────────────────────────────┐%s\n", Yellow, Reset))
+	sb.WriteString(fmt.Sprintf("%s│%s Worked:    %s%s%s / %s\n", Yellow, Reset, Yellow, formatDuration(worked), Reset, formatDuration(workdayTarget)))
+	sb.WriteString(fmt.Sprintf("%s│%s Remaining: %s%s%s\n", Yellow, Reset, Yellow, formatDuration(remaining), Reset))
+	sb.WriteString(fmt.Sprintf("%s│%s Checkout:  %s%s%s\n", Yellow, Reset, Yellow, checkoutTime.Format("3:04 PM"), Reset))
+	sb.WriteString(fmt.Sprintf("%s│%s Progress:  [%s] %s%d%%%s\n", Yellow, Reset, progressBar, Yellow, percentWorked, Reset))
+	sb.WriteString(fmt.Sprintf("%s└─────────────────────────────────────┘%s\n\n", Yellow, Reset))
 
-	// Next action (highlighted)
-	fmt.Printf("%s╔════════════════════════════════════════╗%s\n", Magenta, Reset)
-	fmt.Printf("%s║%s [!] WORKLOG [!]%s%s%s\n", Magenta, Bold, Reset, strings.Repeat(" ", 20), Magenta)
-	fmt.Printf("%s║%s [!] %-28s [!] %s%s\n", Magenta, Bold, fmt.Sprintf("%s - Finish by: %s", nextAction(s.Step), checkoutTime.Format("3:04 PM")), Reset, Magenta)
-	fmt.Printf("%s╚════════════════════════════════════════╝%s\n", Magenta, Reset)
-	fmt.Println()
+	// Next action
+	sb.WriteString(fmt.Sprintf("%s╔════════════════════════════════════════╗%s\n", Magenta, Reset))
+	sb.WriteString(fmt.Sprintf("%s║%s [!] WORKLOG [!]%s%s%s\n", Magenta, Bold, Reset, strings.Repeat(" ", 20), Magenta))
+	sb.WriteString(fmt.Sprintf("%s║%s [!] %-28s [!] %s%s\n", Magenta, Bold, fmt.Sprintf("%s - Finish by: %s", nextAction(s.Step), checkoutTime.Format("3:04 PM")), Reset, Magenta))
+	sb.WriteString(fmt.Sprintf("%s╚════════════════════════════════════════╝%s\n", Magenta, Reset))
 
-	if live {
-		fmt.Printf("%s[Live] Press Ctrl+C to stop live status refresh.%s\n", Cyan, Reset)
-		fmt.Println()
-	}
+	return sb.String()
 }
 
 func clearScreen() {
 	fmt.Print("\033[H\033[2J")
+}
+
+func renderProgressBar(percent int) string {
+	filled := percent / 10
+	if filled > 10 {
+		filled = 10
+	}
+	bar := strings.Repeat("=", filled) + strings.Repeat(" ", 10-filled)
+	return bar
 }
 
 func printBanner() {

@@ -12,7 +12,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("usage: worklog chkin [HH:MM] | chkout [HH:MM] | stat | reset | update")
+		fmt.Println("usage: worklog chkin [HH:MM] | chkout [HH:MM] | stat [--live] | reset | update")
 		return
 	}
 
@@ -44,7 +44,7 @@ func main() {
 	case "chkin", "checkin":
 		ts, err := actions.ParseOptionalTime(arg, ref)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "invalid time format, use HH:MM")
+			fmt.Fprintln(os.Stderr, "invalid time format or constraint:", err)
 			return
 		}
 		if err := actions.Chkin(&s, ts); err != nil {
@@ -59,7 +59,7 @@ func main() {
 	case "chkout", "checkout":
 		ts, err := actions.ParseOptionalTime(arg, ref)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "invalid time format, use HH:MM")
+			fmt.Fprintln(os.Stderr, "invalid time format or constraint:", err)
 			return
 		}
 		if err := actions.Chkout(&s, ts); err != nil {
@@ -72,8 +72,12 @@ func main() {
 		}
 
 	case "stat", "status":
-		if s.Step == 1 || s.Step == 2 || s.Step == 3 {
-			ui.LiveProgress(s)
+		if arg == "--live" || arg == "-l" {
+			if s.Step >= 1 && s.Step <= 3 {
+				ui.LiveProgress(s)
+			} else {
+				ui.Progress(s)
+			}
 		} else {
 			ui.Progress(s)
 		}

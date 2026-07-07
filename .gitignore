@@ -29,3 +29,7 @@ vendor/
 
 UPDATE_GUIDE.md
 RELEASE_SETUP.md
+
+# DotSync — never commit secrets
+.env
+.env.local
